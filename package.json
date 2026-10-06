@@ -1,0 +1,25 @@
+{
+  "name": "teamflow-mern",
+  "version": "1.0.0",
+  "description": "Enterprise Team Task & Project Management System (MERN Stack) with real-time Socket.io Kanban board, RBAC, and AI Sprint Summary",
+  "scripts": {
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "seed": "cd server && npm run seed",
+    "build": "cd client && npm run build"
+  },
+  "keywords": [
+    "mern",
+    "react",
+    "nodejs",
+    "express",
+    "mongodb",
+    "socketio",
+    "kanban",
+    "project-management",
+    "jwt",
+    "rbac"
+  ],
+  "author": "Anshi Sharma",
+  "license": "MIT"
+}
