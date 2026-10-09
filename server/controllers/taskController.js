@@ -95,6 +95,11 @@ const getTaskById = async (req, res, next) => {
         message: 'Task not found',
       });
     }
+    // conflict detection for offline sync
+    if (req.body.lastKnownUpdatedAt && !req.body.force) {
+      const clientTimestamp = new Date(req.body.lastKnownUpdatedAt).getTime();
+      
+    }
 
     res.status(200).json({
       success: true,
@@ -196,6 +201,25 @@ const updateTask = async (req, res, next) => {
         success: false,
         message: 'Task not found',
       });
+    }
+
+    // offline sync
+    if(req.body.lastKnownUpdatedAt && !req.body.force) {
+      const clientTimestamp = new Date(req.body.lastKnownUpdatedAt).getTime();
+      const serverTimestamp = new Date(task.UpdatedAt).getTime();
+      if (serverTimestamp - clientTimestamp > 1000) {
+        const currentTask = await Task.findById(task._id)
+          .populate('assignee','name email role department avatar')
+          .populate('creator','name email role department avatar')
+          .populate('comments.user','name email role department avatar');
+        return res.status(409).json({
+          success: false,
+          conflict: true,
+          message: 'Conflict detected: Task status was modified on the server since you went offline.',
+          serverTask: currentTask,
+        });
+      }
+
     }
 
     // RBAC: Members can only update status and comments on tasks, not delete or edit title/assignee unless assigned
