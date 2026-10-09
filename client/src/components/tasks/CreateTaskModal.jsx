@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
-import { X, Plus, Calendar, Tag, User } from 'lucide-react';
+import { X, Plus, Calendar, Tag, User, CloudOff } from 'lucide-react';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { useSync } from '../../context/SyncContext';
+import offlineStorage from '../../services/offlineStorage';
 
 const CreateTaskModal = ({ project, onClose, onTaskCreated, users }) => {
+  const { user } = useAuth();
+  const { isOnline, enqueueAction } = useSync();
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -19,6 +24,52 @@ const CreateTaskModal = ({ project, onClose, onTaskCreated, users }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleCreateOffline = (tags) => {
+    const tempId = `temp_${Date.now()}`;
+    const assignedUser = users?.find((u) => u._id === formData.assignee) || null;
+    const tempTask = {
+      _id: tempId,
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      status: formData.status,
+      priority: formData.priority,
+      assignee: assignedUser,
+      creator: user,
+      project: project._id,
+      dueDate: formData.dueDate || null,
+      tags,
+      comments: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      _isOffline: true,
+      _syncPending: true,
+    };
+
+    // Cache locally
+    const cachedTasks = offlineStorage.getStoredTasks(project._id);
+    offlineStorage.saveStoredTasks(project._id, [tempTask, ...cachedTasks]);
+
+    // Queue for sync
+    enqueueAction({
+      type: 'CREATE_TASK',
+      projectId: project._id,
+      tempId,
+      taskTitle: tempTask.title,
+      payload: {
+        title: tempTask.title,
+        description: tempTask.description,
+        status: tempTask.status,
+        priority: tempTask.priority,
+        assignee: formData.assignee || null,
+        dueDate: tempTask.dueDate,
+        tags: tempTask.tags,
+      },
+    });
+
+    onTaskCreated(tempTask);
+    onClose();
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.title.trim()) {
@@ -33,6 +84,12 @@ const CreateTaskModal = ({ project, onClose, onTaskCreated, users }) => {
       ? formData.tagsString.split(',').map((t) => t.trim()).filter(Boolean)
       : [];
 
+    if (!navigator.onLine) {
+      handleCreateOffline(tags);
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await api.post(`/projects/${project._id}/tasks`, {
         title: formData.title.trim(),
@@ -45,12 +102,21 @@ const CreateTaskModal = ({ project, onClose, onTaskCreated, users }) => {
       });
 
       if (res.data.success) {
+        // Cache task locally
+        const cached = offlineStorage.getStoredTasks(project._id);
+        offlineStorage.saveStoredTasks(project._id, [res.data.data, ...cached]);
         onTaskCreated(res.data.data);
         onClose();
       }
     } catch (err) {
-      console.error('Failed to create task:', err);
-      setError(err.response?.data?.message || 'Error creating task');
+      if (!err.response || err.code === 'ERR_NETWORK') {
+        // Network failure: fallback to offline creation
+        console.warn('Network issue while creating task, switching to offline queue.');
+        handleCreateOffline(tags);
+      } else {
+        console.error('Failed to create task:', err);
+        setError(err.response?.data?.message || 'Error creating task');
+      }
     } finally {
       setLoading(false);
     }
